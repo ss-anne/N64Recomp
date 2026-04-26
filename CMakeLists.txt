@@ -193,3 +193,8 @@ target_include_directories(LiveRecompTest PRIVATE
 )
 
 target_link_libraries(LiveRecompTest LiveRecomp)
+
+# Ares oracle bridge — generic divergence-checking oracle for any
+# N64Recomp consumer. Stub by default; opt in to real Ares with
+# -DWITH_ARES_BRIDGE=ON. See ares-bridge/README.md.
+add_subdirectory(ares-bridge)
