@@ -145,6 +145,61 @@ ares_status_t ares_save_state(void *buf, size_t buf_len, size_t *out_len);
 ares_status_t ares_load_state(const void *buf, size_t buf_len);
 
 /* ------------------------------------------------------------------ */
+/* RSP per-instruction trace ring (always-on, queryable)              */
+/* ------------------------------------------------------------------ */
+
+/* One captured RSP instruction event. Fields mirror what the Stadium
+ * runtime's pc_trail captures plus the full GPR file and the cop0 DMA
+ * registers — enough state to identify a divergence point and explain
+ * its cause.
+ *
+ * Stable layout: do NOT reorder fields. Consumers may serialize this
+ * over TCP / files. */
+typedef struct {
+    uint32_t pc;             /* RSP PC at instruction-fetch time, low
+                              * 12 bits significant (RSP IMEM is 4 KiB) */
+    uint32_t gpr[32];        /* $r0..$r31 just before the instruction
+                              * dispatched */
+    uint32_t dma_mem_addr;   /* SP_MEM_ADDR cop0 register */
+    uint32_t dma_dram_addr;  /* SP_DRAM_ADDR cop0 register */
+    uint32_t dma_rd_len;     /* SP_RD_LEN  (last-written; clears on
+                              * DMA completion in real HW)             */
+    uint32_t dma_wr_len;     /* SP_WR_LEN  (same)                     */
+    uint32_t status;         /* SP_STATUS bitfield (halted, broken,
+                              * dma_busy, dma_full, semaphore)         */
+    uint64_t seq;            /* monotonic write index — used to detect
+                              * tear when a slow reader competes with
+                              * eviction. Equal to the absolute write
+                              * count when written.                    */
+} ares_rsp_trace_event_t;
+
+/* Total events recorded since process start. Includes evicted ones. */
+uint64_t ares_rsp_trace_count(void);
+
+/* Fetch event by absolute index. Returns 1 on success, 0 if the
+ * requested index has been evicted from the sliding ring. Idx is the
+ * value that was equal to seq when the event was written; semantics
+ * mirror recomp_ultra_trace_get(). */
+int ares_rsp_trace_get(uint64_t idx, ares_rsp_trace_event_t *out);
+
+/* Boot snapshot accessor — non-evicting capture of the first N
+ * events ever recorded. Useful for "what did the RSP do at startup"
+ * questions where the sliding ring has long since rolled over.
+ * `pos` is 0-based into the snapshot, NOT an absolute seq. */
+int ares_rsp_trace_boot_get(uint32_t pos, ares_rsp_trace_event_t *out);
+
+/* Number of events available in the boot snapshot (capped at the
+ * snapshot capacity). */
+uint32_t ares_rsp_trace_boot_count(void);
+
+/* Toggle trace recording. Default-on once the bridge is initialized
+ * because the always-on ring philosophy is "record everything, query
+ * windows." Disable only when validating that the hook itself is
+ * cheap when not used (or for benchmarking the oracle without it). */
+void ares_rsp_trace_set_enabled(int enabled);
+int  ares_rsp_trace_is_enabled(void);
+
+/* ------------------------------------------------------------------ */
 /* Build / capability introspection                                   */
 /* ------------------------------------------------------------------ */
 

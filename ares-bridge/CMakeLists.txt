@@ -59,6 +59,59 @@ if(WITH_ARES_BRIDGE)
             "    ares-bridge/third_party/ares")
     endif()
 
+    # Apply local patches to the vendored Ares submodule. These are
+    # additive hooks ares-bridge depends on (per-instruction RSP
+    # trace, etc) — they're vendored as patch files so a re-clone
+    # plus a fresh `git submodule update` followed by cmake configure
+    # automatically re-applies them. If Ares upstream changes
+    # conflict with a patch, the configure fails with a clear
+    # diagnostic instead of producing a silently-broken build.
+    set(_ares_patch_dir "${CMAKE_CURRENT_SOURCE_DIR}/patches")
+    file(GLOB _ares_patches "${_ares_patch_dir}/*.patch")
+    list(SORT _ares_patches)
+    find_program(_git_exe git REQUIRED)
+    foreach(_patch IN LISTS _ares_patches)
+        get_filename_component(_patch_name "${_patch}" NAME)
+        # Idempotency: check if patch is already applied. `git apply
+        # --reverse --check` succeeds if the patch's "after" state is
+        # currently in the tree (i.e., it's been applied), in which
+        # case we skip re-applying.
+        execute_process(
+            COMMAND "${_git_exe}" apply --reverse --check "${_patch}"
+            WORKING_DIRECTORY "${ARES_SUBMODULE_PATH}"
+            RESULT_VARIABLE _already_applied
+            OUTPUT_QUIET ERROR_QUIET)
+        if(_already_applied EQUAL 0)
+            message(STATUS
+                "ares-bridge: patch already applied: ${_patch_name}")
+        else()
+            execute_process(
+                COMMAND "${_git_exe}" apply --check "${_patch}"
+                WORKING_DIRECTORY "${ARES_SUBMODULE_PATH}"
+                RESULT_VARIABLE _patch_check
+                ERROR_VARIABLE _patch_err)
+            if(NOT _patch_check EQUAL 0)
+                message(FATAL_ERROR
+                    "ares-bridge: cannot apply patch '${_patch_name}' "
+                    "to vendored Ares — upstream may have changed in a "
+                    "way that conflicts. Update the patch file. "
+                    "git apply --check output:\n${_patch_err}")
+            endif()
+            execute_process(
+                COMMAND "${_git_exe}" apply "${_patch}"
+                WORKING_DIRECTORY "${ARES_SUBMODULE_PATH}"
+                RESULT_VARIABLE _patch_apply
+                ERROR_VARIABLE _patch_err)
+            if(NOT _patch_apply EQUAL 0)
+                message(FATAL_ERROR
+                    "ares-bridge: patch '${_patch_name}' check passed "
+                    "but apply failed:\n${_patch_err}")
+            endif()
+            message(STATUS
+                "ares-bridge: applied patch ${_patch_name}")
+        endif()
+    endforeach()
+
     set(_ares_lib       "${ARES_BUILD_DIR}/ares/Release/ares.lib")
     set(_nall_lib       "${ARES_BUILD_DIR}/nall/nall/nall.dir/Release/nall.lib")
     set(_libco_lib      "${ARES_BUILD_DIR}/libco/Release/libco.lib")
@@ -145,6 +198,18 @@ if(WITH_ARES_BRIDGE)
             "WITH_ARES_BRIDGE=ON but src/ares_core_glue.cpp does not "
             "exist yet. Bridge will link with placeholder bodies only. "
             "See DESIGN.md.")
+    endif()
+
+    # Phase 2 / Stage B: always-on RSP per-instruction trace ring.
+    # Implementation depends on the matching extern "C" hook in the
+    # vendored ares/n64/rsp/rsp.cpp (a 4-line modification — see the
+    # comment in that file). If the hook is missing, the linker will
+    # complain about an undefined reference to
+    # `ares_rsp_external_instruction_hook`.
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ares_rsp_ring.cpp")
+        target_sources(ares_bridge PRIVATE
+            src/ares_rsp_ring.cpp
+        )
     endif()
 
     # Link the pre-built Ares stack. Order: ares first (consumer), then

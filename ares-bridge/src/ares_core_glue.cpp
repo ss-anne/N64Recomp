@@ -459,6 +459,14 @@ ares_status_t ares_reset(void) {
     g_oracle_platform.system_pak_    = make_system_pak();
     g_oracle_platform.cartridge_pak_ = make_cartridge_pak(g_state.rom_bytes);
 
+    /* Force the RSP into interpreter mode so the per-instruction
+     * trace hook fires once per instruction (vs once per recompiled
+     * block). The recompiler is faster but defeats the oracle's
+     * primary purpose: per-instruction divergence comparison. This
+     * call is a no-op if Accuracy::RSP::Recompiler is compile-time
+     * false (e.g., on architectures without sljit support). */
+    ares::Nintendo64::option(string{"Recompiler"}, string{"false"});
+
     /* Hand off to Ares' N64 platform loader. The string must exactly
      * match one of the values returned by ares::Nintendo64::enumerate()
      * — see system.cpp. We default to NTSC because Pokemon Stadium
@@ -473,9 +481,33 @@ ares_status_t ares_reset(void) {
         return ARES_BRIDGE_INTERNAL_ERROR;
     }
 
+    /* Connect the cartridge slot. Ares' system.load() registers the
+     * Cartridge Slot port but doesn't auto-connect — the host must
+     * call port->allocate() then port->connect() to trigger
+     * Cartridge::connect() (which is where pak attributes get read
+     * into cartridge.information.cic etc). Mirrors desktop-ui's
+     * emulator/nintendo-64.cpp:123-126.
+     *
+     * Without this call, cartridge.cic() returns empty, the CIC
+     * power-on uses an unconfigured model, and PIF::main fails
+     * with "invalid IPL2 checksum" because the CIC reports zero
+     * checksum bytes. */
+    if (auto port = g_root_node->find<ares::Node::Port>(
+            string{"Cartridge Slot"})) {
+        port->allocate();
+        port->connect();
+    } else {
+        std::fprintf(stderr,
+            "ares-bridge: Cartridge Slot port not found after "
+            "system.load() — Ares Node tree structure may have "
+            "changed.\n");
+        return ARES_BRIDGE_INTERNAL_ERROR;
+    }
+
     /* Power-on. `false` = cold reset (not warm reset). Initializes
      * every subsystem; equivalent to plugging in the cart and pressing
-     * the power button. */
+     * the power button. Must come AFTER cartridge connect because
+     * cic.power() reads cartridge.cic(). */
     ares::Nintendo64::system.power(false);
     g_state.system_loaded = true;
     return ARES_BRIDGE_OK;

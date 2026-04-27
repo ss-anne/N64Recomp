@@ -1,0 +1,36 @@
+diff --git a/ares/n64/rsp/rsp.cpp b/ares/n64/rsp/rsp.cpp
+index 98da76924..b624fd8f7 100644
+--- a/ares/n64/rsp/rsp.cpp
++++ b/ares/n64/rsp/rsp.cpp
+@@ -1,5 +1,16 @@
+ #include <n64/n64.hpp>
+ 
++// ares-bridge oracle trace hook. Defined extern "C" so an external
++// consumer (ares-bridge/src/ares_rsp_ring.cpp) can install a function
++// pointer that fires before every RSP::instruction() invocation. The
++// pointer is null by default — when ares-bridge is not linked or the
++// oracle ring is disabled, the hook adds a single load + branch.
++//
++// This is the ONLY local modification to the vendored Ares source. If
++// Ares upstream is re-pulled, this 4-line block plus the call site
++// inside RSP::instruction() must be re-applied.
++extern "C" void (*ares_rsp_external_instruction_hook)(void* rsp_instance) = nullptr;
++
+ namespace ares::Nintendo64 {
+ 
+ RSP rsp;
+@@ -44,6 +55,14 @@ auto RSP::main() -> void {
+ }
+ 
+ auto RSP::instruction() -> void {
++  // ares-bridge oracle trace hook. Fires before every instruction
++  // dispatch (interpreter mode) or every block dispatch (recompiler
++  // mode); for per-instruction trace fidelity, consumers must
++  // disable the RSP recompiler via option("Recompiler", "false").
++  if(::ares_rsp_external_instruction_hook) {
++    ::ares_rsp_external_instruction_hook(this);
++  }
++
+   if(Accuracy::RSP::Recompiler && recompiler.enabled) {
+     auto block = recompiler.block(ipu.pc);
+     block->execute(*this);
