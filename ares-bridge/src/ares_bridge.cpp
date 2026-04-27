@@ -15,6 +15,11 @@
 
 #include "ares_bridge.h"
 
+/* When the real bridge is linked, ares_core_glue.cpp owns every
+ * symbol declared in ares_bridge.h. This translation unit becomes
+ * empty so the linker doesn't see duplicate definitions. */
+#ifndef N64RECOMP_ARES_BRIDGE_REAL
+
 #include <cstdio>
 #include <cstdlib>
 
@@ -108,3 +113,5 @@ const char *ares_bridge_version(void) {
 }
 
 } /* extern "C" */
+
+#endif /* !N64RECOMP_ARES_BRIDGE_REAL */

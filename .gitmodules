@@ -13,3 +13,6 @@
 [submodule "lib/sljit"]
 	path = lib/sljit
 	url = https://github.com/zherczeg/sljit
+[submodule "ares-bridge/third_party/ares"]
+	path = ares-bridge/third_party/ares
+	url = https://github.com/ares-emulator/ares.git

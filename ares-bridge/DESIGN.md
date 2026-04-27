@@ -34,35 +34,78 @@ void verify_one_frame(uint32_t recomp_pc, uint64_t *recomp_regs,
 
 Everything in this design exists to make that snippet real.
 
-## Phase 1 — Carve out the N64 core
+## Phase 1 — Carve out the N64 core  ✅ DONE (2026-04-26)
 
 **Goal:** a buildable, headless Ares N64 core with a C entry point.
 
-Ares upstream (`ares-emulator/ares`) ships as one big project that
-produces a SDL/Qt GUI app. The N64 core lives at `ares/n64/` and
-nominally does not need the UI — but it has implicit deps on
-`nall/` (utility headers), the audio subsystem, the input
-abstraction, and the scheduler in `ares/component/processor/`.
+**Outcome:** completed faster than the original "1-2 weeks" budget by
+not carving at all — Ares' own CMake supports a narrowed build via
+`ARES_CORES=n64;gb` and tolerates the absence of `desktop-ui/mia/hiro`
+when those subdirs are not added by a top-level project. We pre-build
+Ares externally into `ares-bridge/build/ares/` and link the resulting
+static libs from our `ares_bridge` target.
 
-Subtasks:
+Pinned upstream: **Ares v147** (`f533120df`, 2025-12-18).
 
-1. Stand up an out-of-source CMake target that compiles just
-   `ares/n64/`'s sources. Use a placeholder `main()` that does
-   nothing. The build will fail on missing symbols — that's the
-   dependency map.
-2. Walk the missing-symbol list. For each: include the source
-   file, or stub it out, or rewrite the call site to bypass it.
-3. End state: an `ares_n64_core.a` static library that exports
-   nothing externally except the C++ entry points we care about
-   (load ROM, step, read state).
+**Build sequence (one-time):**
 
-**Risk:** Ares's N64 core uses C++20 concepts, expression-template
-DSLs in `nall/`, and aggressive header-only patterns. Carving may
-require tracking 3-5 levels of header dependency. Budget 1-2
-weeks just for this phase.
+```sh
+git submodule update --init --recursive   # fetches third_party/ares
+cmake -S ares-bridge/third_party/ares \
+      -B ares-bridge/build/ares \
+      -G "Visual Studio 17 2022" -A x64 \
+      -DARES_CORES=n64\;gb \
+      -DARES_BUILD_OPTIONAL_TARGETS=OFF \
+      -DARES_PRECOMPILE_HEADERS=OFF \
+      -DARES_UNITY_CORES=OFF
+cmake --build ares-bridge/build/ares --target ares --config Release
+```
 
-**Mitigation:** track which Ares HEAD we cut against. Don't
-update Ares mid-Phase-1.
+This produces:
+
+- `ares.lib`              — the core engine (N64 + GB cores + framework)
+- `nall.lib`              — Ares' utility lib
+- `libco.lib`             — coroutine context-switch primitive
+- `chdr-static.lib`       — CHD compressed disk format
+- `sljit.lib`             — SLJIT runtime asm helper
+- `lzma.lib`/`zlib`/`zstd` — supporting compression libs
+
+**Bridge build:**
+
+```sh
+cmake -S . -B build-vs -DWITH_ARES_BRIDGE=ON
+cmake --build build-vs --target ares_bridge --config Release
+```
+
+`ares_bridge.lib` now links `ares.lib` and friends. `ares_init()` opens
+the ROM file, byteswaps any of `.z64/.v64/.n64`, and holds the bytes;
+all other functional entry points abort loudly with a phase-tagged
+diagnostic so callers can't silently consume them.
+
+**What still needs Phase-2 work to actually drive Ares:**
+
+- `ares::Nintendo64::load(node, "Nintendo 64")` is callable but needs
+  a `Node::System` constructed first.
+- `ares::platform` is a global pointer to a video/audio/input sink;
+  must be implemented (no-op video, no-op audio, dummy input) before
+  the Node tree can be torn up.
+- ROM is currently held in a `std::vector<uint8_t>`; needs to be
+  routed through `mia::Pak` or wired into the cartridge slot
+  directly to be visible to the emulator.
+
+**Notes / gotchas captured during the carve:**
+
+- Repo nests as `third_party/ares/ares/ares/ares.hpp` — three "ares"
+  segments. Include search paths must be tuned accordingly.
+- Vulkan/parallel-RDP is built into `ares.lib` even when we don't
+  want a renderer. The `#if defined(VULKAN)` guards in `n64.hpp`/
+  `vi.cpp` mean the headless code path is still exercised at run
+  time so long as we don't construct the VI's Vulkan device. If
+  symbol bloat becomes a problem we can revisit by editing
+  `ares/n64/CMakeLists.txt` to drop the parallel-RDP source list.
+- Ares' build defines `PROFILE_PERFORMANCE`, `BUILD_LOCAL`,
+  `ARES_ENABLE_CHD`, `CORE_GB` at compile time. The bridge mirrors
+  these so its glue's `#include <ares/ares.hpp>` matches.
 
 ## Phase 2 — Lifecycle (init / shutdown / reset)
 
