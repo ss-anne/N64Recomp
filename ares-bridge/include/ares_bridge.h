@@ -5,8 +5,20 @@
  * oracle. Header is intended to be consumed by any N64Recomp
  * runner regardless of the underlying game.
  *
- * Status: API frozen, implementation pending. All entry points
- * currently return ARES_BRIDGE_NOT_IMPLEMENTED.
+ * Build modes:
+ *   - Default (placeholder): every functional entry point in this
+ *     header is linked against a body that abort()s on call. The
+ *     only safe-to-call functions are ares_bridge_is_real() (which
+ *     returns 0) and ares_bridge_version() (which returns "placeholder
+ *     ..."). Consumers MUST gate all other calls behind
+ *     ares_bridge_is_real() == 1.
+ *   - Real (-DWITH_ARES_BRIDGE=ON): links the embedded Ares N64
+ *     core. ares_bridge_is_real() returns 1. All entry points
+ *     execute against Ares.
+ *
+ * ARES_BRIDGE_NOT_IMPLEMENTED is reserved for genuinely-unimplementable
+ * sub-features inside the real build (e.g. an opcode the Ares core
+ * does not support). It is NEVER returned just to mean "stub."
  */
 
 #ifndef N64RECOMP_ARES_BRIDGE_H

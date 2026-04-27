@@ -1,67 +1,93 @@
 /*
- * ares_bridge.cpp — stub implementation.
+ * ares_bridge.cpp — placeholder build (real Ares core not linked).
  *
- * Every entry point returns ARES_BRIDGE_NOT_IMPLEMENTED. This
- * compiles cleanly so consumer code can reference the API today;
- * it does NOT actually run Ares.
+ * This file exists only so the linker resolves the bridge symbols
+ * when N64Recomp is built without -DWITH_ARES_BRIDGE=ON. Every
+ * functional entry point logs the call site and abort()s — there
+ * is no silent NOT_IMPLEMENTED return path. Consumers MUST gate
+ * calls behind ares_bridge_is_real(), which is the only function
+ * here that returns without aborting.
  *
- * Real implementation lands when WITH_ARES_BRIDGE=ON pulls in the
- * Ares submodule and ares_core_glue.cpp wires up the C++ core.
+ * The real implementation lives behind WITH_ARES_BRIDGE=ON and
+ * pulls in ares-bridge/third_party/ares + ares_core_glue.cpp.
  * See DESIGN.md.
  */
 
 #include "ares_bridge.h"
 
+#include <cstdio>
+#include <cstdlib>
+
+namespace {
+
+[[noreturn]] void bridge_abort(const char *fn) {
+    std::fprintf(stderr,
+        "\nares-bridge: %s called but bridge was built as a "
+        "placeholder.\n"
+        "             Reconfigure with -DWITH_ARES_BRIDGE=ON and "
+        "rebuild,\n"
+        "             or gate the call behind ares_bridge_is_real() "
+        "== 1.\n",
+        fn);
+    std::fflush(stderr);
+    std::abort();
+}
+
+} // namespace
+
 extern "C" {
 
 ares_status_t ares_init(const char *) {
-    return ARES_BRIDGE_NOT_IMPLEMENTED;
+    bridge_abort("ares_init");
 }
 
 void ares_shutdown(void) {
-    /* no-op in stub */
+    bridge_abort("ares_shutdown");
 }
 
 ares_status_t ares_reset(void) {
-    return ARES_BRIDGE_NOT_IMPLEMENTED;
+    bridge_abort("ares_reset");
 }
 
 ares_status_t ares_step_frame(void) {
-    return ARES_BRIDGE_NOT_IMPLEMENTED;
+    bridge_abort("ares_step_frame");
 }
 
 ares_status_t ares_step_instruction(void) {
-    return ARES_BRIDGE_NOT_IMPLEMENTED;
+    bridge_abort("ares_step_instruction");
 }
 
 ares_status_t ares_read_cpu_register(int, uint64_t *) {
-    return ARES_BRIDGE_NOT_IMPLEMENTED;
+    bridge_abort("ares_read_cpu_register");
 }
 
 ares_status_t ares_read_pc(uint32_t *) {
-    return ARES_BRIDGE_NOT_IMPLEMENTED;
+    bridge_abort("ares_read_pc");
 }
 
 ares_status_t ares_read_hi_lo(uint64_t *, uint64_t *) {
-    return ARES_BRIDGE_NOT_IMPLEMENTED;
+    bridge_abort("ares_read_hi_lo");
 }
 
 ares_status_t ares_read_memory(uint32_t, void *, size_t) {
-    return ARES_BRIDGE_NOT_IMPLEMENTED;
+    bridge_abort("ares_read_memory");
 }
 
 ares_status_t ares_set_controller(int, const ares_input_t *) {
-    return ARES_BRIDGE_NOT_IMPLEMENTED;
+    bridge_abort("ares_set_controller");
 }
 
-ares_status_t ares_save_state(void *, size_t, size_t *out_len) {
-    if (out_len) *out_len = 0;
-    return ARES_BRIDGE_NOT_IMPLEMENTED;
+ares_status_t ares_save_state(void *, size_t, size_t *) {
+    bridge_abort("ares_save_state");
 }
 
 ares_status_t ares_load_state(const void *, size_t) {
-    return ARES_BRIDGE_NOT_IMPLEMENTED;
+    bridge_abort("ares_load_state");
 }
+
+/* Capability probes — these are the ONLY functions that may return
+ * without aborting. Their entire purpose is letting consumers ask
+ * "is this build wired up?" before calling anything else. */
 
 int ares_bridge_is_real(void) {
 #ifdef N64RECOMP_ARES_BRIDGE_REAL
@@ -73,12 +99,11 @@ int ares_bridge_is_real(void) {
 
 const char *ares_bridge_version(void) {
 #ifdef N64RECOMP_ARES_BRIDGE_REAL
-    /* The real implementation will report the linked Ares git
-     * SHA via a CMake-generated string. */
-    return "ares-bridge: real but ares_core_glue.cpp not "
-           "implemented yet";
+    /* Real builds replace this string with the linked Ares git
+     * SHA via a CMake-generated header. */
+    return "ares-bridge: real build, ares_core_glue.cpp pending";
 #else
-    return "stub";
+    return "placeholder (build with -DWITH_ARES_BRIDGE=ON)";
 #endif
 }
 
