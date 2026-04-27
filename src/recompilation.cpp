@@ -440,41 +440,62 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
     case InstrId::cpu_nop:
         fmt::print(output_file, "\n");
         break;
-    // Cop0 (Limited functionality)
+    // COP0 dispatch.
+    //
+    // Each register is handled deliberately, not by a default fallback:
+    //   - Status (12)          → dedicated helper (FR + interrupt enable)
+    //   - Reserved (21..25, 31) → loud abort (genuinely-undefined access)
+    //   - Everything else      → ctx->cop0_regs[reg] storage
+    //
+    // The storage path is the architecturally-correct HLE model for
+    // every register whose hardware semantics depend on subsystems we
+    // don't simulate (TLB, cache, exception entry, debug watchpoints).
+    // See the cop0_regs[32] doc-comment in include/recomp.h for the
+    // per-register reasoning.
+    //
+    // When a game surfaces a register whose HLE semantics need a side
+    // effect (read of Count for elapsed time, read of Cause for pending
+    // IRQs, write of Compare with timer ack), add a dedicated helper
+    // for THAT register here — don't widen the storage path silently.
     case InstrId::cpu_mfc0:
         {
             Cop0Reg reg = instr.Get_cop0d();
-            switch (reg) {
-            case Cop0Reg::COP0_Status:
+            int reg_index = (int)reg;
+            if (reg == Cop0Reg::COP0_Status) {
                 print_indent();
                 generator.emit_cop0_status_read(rt);
-                break;
-            default:
-                // Engine doesn't model this cop0 register yet. Emit a
-                // runtime call instead of failing — the function still
-                // compiles; runtime aborts loudly if this read is hit.
-                // Per project principles: not a stub, just an
-                // unimplementable hole surfaced at runtime.
-                fmt::print(stderr, "[Warn] Unhandled cop0 register in mfc0: {} — emitting runtime abort\n", (int)reg);
+            } else if ((reg_index >= 21 && reg_index <= 25) || reg_index == 31) {
+                // Reserved on real hardware — genuine "shouldn't happen"
+                // case. Stay loud.
+                fmt::print(stderr, "[Warn] mfc0 from reserved cop0 register {} — emitting runtime abort\n", reg_index);
                 print_indent();
-                fmt::print(output_file, "ctx->r{} = recomp_unhandled_cop0_read(rdram, ctx, 0x{:08X}u, {});\n", (int)rt, instr_vram, (int)reg);
-                break;
+                fmt::print(output_file, "ctx->r{} = recomp_unhandled_cop0_read(rdram, ctx, 0x{:08X}u, {});\n",
+                    (int)rt, instr_vram, reg_index);
+            } else {
+                // HLE-correct storage. sign-extend to 64-bit gpr like
+                // the existing default path did for non-Status reads.
+                print_indent();
+                fmt::print(output_file, "ctx->r{} = (int32_t)ctx->cop0_regs[{}];\n",
+                    (int)rt, reg_index);
             }
             break;
         }
     case InstrId::cpu_mtc0:
         {
             Cop0Reg reg = instr.Get_cop0d();
-            switch (reg) {
-            case Cop0Reg::COP0_Status:
+            int reg_index = (int)reg;
+            if (reg == Cop0Reg::COP0_Status) {
                 print_indent();
                 generator.emit_cop0_status_write(rt);
-                break;
-            default:
-                fmt::print(stderr, "[Warn] Unhandled cop0 register in mtc0: {} — emitting runtime abort\n", (int)reg);
+            } else if ((reg_index >= 21 && reg_index <= 25) || reg_index == 31) {
+                fmt::print(stderr, "[Warn] mtc0 to reserved cop0 register {} — emitting runtime abort\n", reg_index);
                 print_indent();
-                fmt::print(output_file, "recomp_unhandled_cop0_write(rdram, ctx, 0x{:08X}u, {}, ctx->r{});\n", instr_vram, (int)reg, (int)rt);
-                break;
+                fmt::print(output_file, "recomp_unhandled_cop0_write(rdram, ctx, 0x{:08X}u, {}, ctx->r{});\n",
+                    instr_vram, reg_index, (int)rt);
+            } else {
+                print_indent();
+                fmt::print(output_file, "ctx->cop0_regs[{}] = (uint32_t)ctx->r{};\n",
+                    reg_index, (int)rt);
             }
             break;
         }

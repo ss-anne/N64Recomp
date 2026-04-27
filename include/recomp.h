@@ -426,6 +426,64 @@ typedef struct {
     uint32_t* f_odd;
     uint32_t status_reg;
     uint8_t mips3_float_mode;
+    // Backing storage for COP0 registers that don't have a dedicated
+    // helper. This is NOT a "stub" fallback — it is the architecturally
+    // correct HLE model for every COP0 register whose hardware semantics
+    // depend on subsystems we don't simulate.
+    //
+    // Per-register reasoning (see operations/cop0 dispatch in
+    // src/recompilation.cpp for the corresponding emit decisions):
+    //
+    //   $0..$7   TLB regs (Index/Random/EntryLo0/EntryLo1/Context/
+    //            PageMask/Wired). HLE has no TLB — virtual addresses
+    //            translate via the constant offset in MEM_W. Writes
+    //            here are stored; reads return the last write. libultra
+    //            zeros these at boot then never reads them.
+    //   $8       BadVAddr. Written by hardware on TLB miss; HLE has no
+    //            CPU exceptions, so the only writes come from libultra
+    //            init zeroing. Storage.
+    //   $9       Count. Free-running cycle counter. Storage today;
+    //            libultra games typically use the VI interrupt for
+    //            timing. If a game polls Count for elapsed time we add
+    //            a side-effecting read helper THEN.
+    //   $10      EntryHi. TLB. Storage.
+    //   $11      Compare. Write resets pending timer interrupt on real
+    //            hardware. HLE has no timer interrupt path (interrupts
+    //            come from VI/AI/SI events), so storage matches
+    //            observable behavior.
+    //   $12      Status. NOT in this array — has dedicated helpers
+    //            cop0_status_read/write because it controls FR
+    //            (FPU register layout) and interrupt enable bits.
+    //   $13      Cause. Read returns pending IRQ bits set by hardware.
+    //            HLE: VI/AI/SI events drive their own IRQ paths. If a
+    //            game reads Cause to learn about pending IRQs we add a
+    //            read helper THEN. Stadium only writes (clear) at boot.
+    //   $14      EPC. Exception PC, written by exception entry. HLE has
+    //            no exception entry. Storage.
+    //   $15      PRId. Processor ID. Read-only on real hardware
+    //            (R4300i = 0x00000B00). We allow writes to land in
+    //            storage; the only consumer is debug code, which
+    //            doesn't run in HLE.
+    //   $16      Config. Cache configuration. HLE has no cache.
+    //   $17      LLAddr. Load-linked address. HLE doesn't model LL/SC
+    //            atomicity. Storage.
+    //   $18,$19  WatchLo/WatchHi. Hardware data watchpoints. HLE has
+    //            no debug exception path. Storage.
+    //   $20      XContext. 64-bit TLB miss context. Storage.
+    //   $21..$25 Reserved on real hardware. Loud abort if accessed.
+    //   $26      PErr. Cache parity error. HLE never generates errors.
+    //   $27      CacheErr. Same.
+    //   $28,$29  TagLo/TagHi. Cache tag access. HLE has no cache.
+    //   $30      ErrorEPC. Error exception PC. Storage.
+    //   $31      Reserved. Loud abort.
+    //
+    // This is the "model is storage" decision, made deliberately per
+    // register, not a fallback default. When a game surfaces a register
+    // whose HLE semantics genuinely need a side effect (read of Count,
+    // read of Cause, write of Compare with timer ack), we add a
+    // dedicated helper for THAT register and the dispatch in
+    // recompilation.cpp routes to it instead of cop0_regs[].
+    uint32_t cop0_regs[32];
 } recomp_context;
 
 // Checks if the target is an even float register or that mips3 float mode is enabled
