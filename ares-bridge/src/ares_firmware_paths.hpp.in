@@ -1,0 +1,20 @@
+/*
+ * ares_firmware_paths.hpp — paths to Ares' embedded N64 firmware,
+ * baked in by CMake at configure time.
+ *
+ * The mia subsystem normally embeds these via its sourcery resource
+ * generator, but mia drags in ZIP/CHD/UI dependencies we don't want
+ * for an oracle. Reading the files from their fixed location in the
+ * vendored ares tree avoids that surface area while still using the
+ * same firmware Ares' desktop UI uses.
+ */
+
+#pragma once
+
+namespace ares_bridge {
+
+inline constexpr const char* kPifNtscRomPath = "@ARES_FIRMWARE_PIF_NTSC@";
+inline constexpr const char* kPifPalRomPath  = "@ARES_FIRMWARE_PIF_PAL@";
+inline constexpr const char* kPifSm5RomPath  = "@ARES_FIRMWARE_PIF_SM5@";
+
+} // namespace ares_bridge

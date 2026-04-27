@@ -25,15 +25,19 @@ REPO = pathlib.Path(__file__).resolve().parents[2]
 GLUE_CPP = REPO / 'ares-bridge' / 'src' / 'ares_core_glue.cpp'
 PLACEHOLDER_CPP = REPO / 'ares-bridge' / 'src' / 'ares_bridge.cpp'
 
-# Entry points that are real (not glue_unimplemented) at the end of
-# Phase 1.
-PHASE_1_DONE = ['ares_init', 'ares_shutdown']
+# Entry points that are real (not glue_unimplemented).
+# Phase 1: ares_init, ares_shutdown.
+# Phase 2: ares_reset, ares_step_frame.
+PHASE_1_DONE = [
+    'ares_init',
+    'ares_shutdown',
+    'ares_reset',                # Phase 2 — Node tree + cartridge mount
+    'ares_step_frame',           # Phase 2 — system.run() drives one frame
+]
 
 # Entry points that must still abort via glue_unimplemented because
 # their phases are pending.
 STILL_PENDING = [
-    'ares_reset',                # Phase 2
-    'ares_step_frame',           # Phase 4
     'ares_step_instruction',     # Phase 4
     'ares_read_cpu_register',    # Phase 3
     'ares_read_pc',              # Phase 3

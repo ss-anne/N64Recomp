@@ -84,12 +84,40 @@ if(WITH_ARES_BRIDGE)
         N64RECOMP_ARES_BRIDGE_REAL=1
     )
 
+    # Bake firmware paths from the vendored ares tree into a generated
+    # header. Reading at runtime (vs embedding bytes) avoids needing a
+    # custom sourcery-style binary-to-array tool.
+    set(ARES_FIRMWARE_PIF_NTSC
+        "${ARES_SUBMODULE_PATH}/ares/System/Nintendo 64/pif.ntsc.rom")
+    set(ARES_FIRMWARE_PIF_PAL
+        "${ARES_SUBMODULE_PATH}/ares/System/Nintendo 64/pif.pal.rom")
+    set(ARES_FIRMWARE_PIF_SM5
+        "${ARES_SUBMODULE_PATH}/mia/Firmware/Nintendo 64/pif.sm5.rom")
+    foreach(_fw IN ITEMS
+            "${ARES_FIRMWARE_PIF_NTSC}"
+            "${ARES_FIRMWARE_PIF_PAL}"
+            "${ARES_FIRMWARE_PIF_SM5}")
+        if(NOT EXISTS "${_fw}")
+            message(FATAL_ERROR
+                "ares-bridge: PIF firmware missing at ${_fw}\n"
+                "Did the vendored ares tree get partially deleted?")
+        endif()
+    endforeach()
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/ares_firmware_paths.hpp.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/ares_firmware_paths.hpp"
+        @ONLY)
+    target_include_directories(ares_bridge PRIVATE
+        "${CMAKE_CURRENT_BINARY_DIR}")
+
     # Ares uses many compile definitions in its own build; when our
-    # glue includes ares headers we must supply matching ones.
+    # glue includes ares headers we must supply matching ones. We
+    # explicitly do NOT define ARES_ENABLE_CHD because the oracle has
+    # no use for CD-ROM image support and including <libchdr/chd.h>
+    # would require pulling that header tree onto our include path.
     target_compile_definitions(ares_bridge PRIVATE
         PROFILE_PERFORMANCE
         BUILD_LOCAL
-        ARES_ENABLE_CHD
         CORE_GB
     )
 
@@ -98,6 +126,7 @@ if(WITH_ARES_BRIDGE)
     # Those map to subdirs under ares/, nall/, ares/n64/ — but with the
     # repo's "ares" appearing twice (third_party/ares/ares/ares/ares.hpp).
     target_include_directories(ares_bridge SYSTEM PRIVATE
+        "${ARES_SUBMODULE_PATH}"
         "${ARES_SUBMODULE_PATH}/ares"
         "${ARES_SUBMODULE_PATH}/nall"
         "${ARES_SUBMODULE_PATH}/ares/ares"
@@ -131,9 +160,17 @@ if(WITH_ARES_BRIDGE)
         "${_zstd_lib}"
     )
 
-    # Ares pulls in winmm + Threads via its own CMake; replicate.
+    # Ares pulls in winmm + Threads + WinSock + Shell via its own
+    # CMake; replicate. PUBLIC because consumer executables linking
+    # ares_bridge inherit the same dependencies — nall's GDB server
+    # uses winsock unconditionally and is reachable from any code
+    # that includes <ares/ares.hpp>.
     if(WIN32)
-        target_link_libraries(ares_bridge PRIVATE winmm)
+        target_link_libraries(ares_bridge PUBLIC
+            winmm     # multimedia (timeBeginPeriod etc)
+            Ws2_32    # WinSock 2 (nall::GDB server)
+            Shlwapi   # registry helpers (SHDeleteKey/Value)
+        )
     endif()
     set(THREADS_PREFER_PTHREAD_FLAG ON)
     find_package(Threads)
@@ -146,6 +183,26 @@ if(WITH_ARES_BRIDGE)
     message(STATUS "ares-bridge: REAL mode enabled")
     message(STATUS "  Ares submodule: ${ARES_SUBMODULE_PATH}")
     message(STATUS "  Ares build:     ${ARES_BUILD_DIR}")
+
+    # Stage A smoke-test executable. Validates that ares_bridge.lib
+    # links cleanly against ares.lib + dependencies and that the
+    # System construction + frame-step lifecycle runs end-to-end.
+    # Lives under smoke/ rather than tests/ because the top-level
+    # .gitignore reserves tests/ for local scratch directories.
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/smoke/smoke_oracle_boot.cpp")
+        add_executable(ares_bridge_smoke_oracle_boot
+            smoke/smoke_oracle_boot.cpp
+        )
+        target_link_libraries(ares_bridge_smoke_oracle_boot PRIVATE
+            ares_bridge
+        )
+        target_compile_features(ares_bridge_smoke_oracle_boot PRIVATE
+            cxx_std_20
+        )
+        set_target_properties(ares_bridge_smoke_oracle_boot PROPERTIES
+            FOLDER "ares-bridge/smoke"
+        )
+    endif()
 else()
     message(STATUS "ares-bridge: placeholder mode (set -DWITH_ARES_BRIDGE=ON to "
                    "enable real Ares integration)")
