@@ -274,6 +274,12 @@ int main(int argc, char** argv) {
 
     bool dumping_context;
 
+    if (argc < 2) {
+        fmt::print(stderr, "Usage: {} <config file> [--dump-context]\n",
+                   argc >= 1 ? argv[0] : "N64Recomp");
+        std::exit(EXIT_FAILURE);
+    }
+
     if (argc >= 3) {
         std::string arg2 = argv[2];
         if (arg2 == "--dump-context") {
