@@ -268,6 +268,26 @@ if(WITH_ARES_BRIDGE)
             FOLDER "ares-bridge/smoke"
         )
     endif()
+
+    # Standalone TCP-driven oracle server. Lives in its own process so
+    # it doesn't share libco / sljit / threading state with the
+    # consumer (which empirically breaks Ares — see the comment at
+    # the top of server/ares_oracle_server.cpp). Diff harnesses
+    # connect to this server on TCP 4372 by default.
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/server/ares_oracle_server.cpp")
+        add_executable(ares_oracle_server
+            server/ares_oracle_server.cpp
+        )
+        target_link_libraries(ares_oracle_server PRIVATE
+            ares_bridge
+        )
+        target_compile_features(ares_oracle_server PRIVATE
+            cxx_std_20
+        )
+        set_target_properties(ares_oracle_server PROPERTIES
+            FOLDER "ares-bridge/server"
+        )
+    endif()
 else()
     message(STATUS "ares-bridge: placeholder mode (set -DWITH_ARES_BRIDGE=ON to "
                    "enable real Ares integration)")

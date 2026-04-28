@@ -160,21 +160,38 @@ void record_one_instruction(void* rsp_instance) {
     }
 }
 
-/* Static-init installer: hooks our recorder into the Ares RSP at
- * process start. Symmetric with the placeholder pattern in
- * ares_core_glue.cpp. */
-struct HookInstaller {
-    HookInstaller() {
+/* Hook installation. Originally an anonymous-namespace static-init
+ * struct (`HookInstaller g_hook_installer;`), but clang-cl in Release
+ * dead-stripped the global because it has internal linkage and no
+ * referenced uses — the ctor (and therefore the hook) never ran in
+ * downstream consumers using clang-cl + lld-link. Anchoring the
+ * install in a function called from the always-on trace-query path
+ * (every consumer hits ares_rsp_trace_count before step_frame) keeps
+ * it alive under any toolchain without needing per-compiler
+ * "[[gnu::used]]" / __pragma(comment) tricks. The atomic flag makes
+ * the install happen exactly once even under concurrent first calls. */
+std::atomic<bool> g_hook_installed{false};
+
+void ensure_hook_installed() {
+    bool expected = false;
+    if (g_hook_installed.compare_exchange_strong(
+            expected, true, std::memory_order_acq_rel)) {
         ares_rsp_external_instruction_hook = &record_one_instruction;
+        std::fprintf(stderr,
+            "ares-bridge: RSP per-instruction hook installed (recorder=%p, "
+            "extern_var=%p)\n",
+            (void*)&record_one_instruction,
+            (void*)&ares_rsp_external_instruction_hook);
+        std::fflush(stderr);
     }
-};
-HookInstaller g_hook_installer;
+}
 
 } // namespace
 
 extern "C" {
 
 uint64_t ares_rsp_trace_count(void) {
+    ensure_hook_installed();
     return g_ring.write_idx.load(std::memory_order_relaxed);
 }
 
@@ -207,6 +224,7 @@ int ares_rsp_trace_boot_get(uint32_t pos, ares_rsp_trace_event_t* out) {
 }
 
 void ares_rsp_trace_set_enabled(int enabled) {
+    ensure_hook_installed();
     g_ring.enabled.store(enabled != 0, std::memory_order_relaxed);
 }
 

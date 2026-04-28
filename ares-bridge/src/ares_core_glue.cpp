@@ -413,6 +413,14 @@ ares_status_t ares_init(const char *rom_path) {
     g_state.rom_bytes = std::move(bytes);
     g_state.rom_path = rom_path;
     g_state.initialized = true;
+
+    /* Force-anchor the RSP trace ring's hook installer. The installer
+     * lives in ares_rsp_ring.cpp as an anonymous-namespace global; under
+     * clang-cl + lld-link with /OPT:REF the dead-stripping eliminates
+     * the global before its constructor runs. Calling a real entry point
+     * here pulls the TU in and triggers the (idempotent) install. */
+    ares_rsp_trace_set_enabled(ares_rsp_trace_is_enabled());
+
     return ARES_BRIDGE_OK;
 }
 
@@ -459,14 +467,6 @@ ares_status_t ares_reset(void) {
     g_oracle_platform.system_pak_    = make_system_pak();
     g_oracle_platform.cartridge_pak_ = make_cartridge_pak(g_state.rom_bytes);
 
-    /* Force the RSP into interpreter mode so the per-instruction
-     * trace hook fires once per instruction (vs once per recompiled
-     * block). The recompiler is faster but defeats the oracle's
-     * primary purpose: per-instruction divergence comparison. This
-     * call is a no-op if Accuracy::RSP::Recompiler is compile-time
-     * false (e.g., on architectures without sljit support). */
-    ares::Nintendo64::option(string{"Recompiler"}, string{"false"});
-
     /* Hand off to Ares' N64 platform loader. The string must exactly
      * match one of the values returned by ares::Nintendo64::enumerate()
      * — see system.cpp. We default to NTSC because Pokemon Stadium
@@ -503,6 +503,13 @@ ares_status_t ares_reset(void) {
             "changed.\n");
         return ARES_BRIDGE_INTERNAL_ERROR;
     }
+
+    /* Force the RSP into interpreter mode so the per-instruction
+     * trace hook fires once per instruction (vs once per recompiled
+     * block). Must be AFTER load() so the rsp object's recompiler
+     * field exists; calling before load() can leave a stale
+     * `enabled = true` if power() re-initializes recompiler defaults. */
+    ares::Nintendo64::option(string{"Recompiler"}, string{"false"});
 
     /* Power-on. `false` = cold reset (not warm reset). Initializes
      * every subsystem; equivalent to plugging in the cart and pressing
