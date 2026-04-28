@@ -298,7 +298,16 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
             }
             else {
                 uint32_t target_section = func.section_index;
-                if (has_reloc) {
+                // Only override target_section when the reloc points at a real
+                // section. SectionAbsolute / SectionImport / SectionEvent are
+                // special sentinels (negative when interpreted signed) and
+                // would index context.sections out of bounds — observed when
+                // marking Stadium's .fragment1 relocatable, which surfaces
+                // R_MIPS_26 relocs whose ELF symbol lives in SHN_ABS (the
+                // absolute address is already encoded in the JAL immediate,
+                // so the in-section function lookup against the caller's
+                // section is the right fallback).
+                if (has_reloc && reloc_section < context.sections.size()) {
                     target_section = reloc_section;
                 }
                 JalResolutionResult jal_result = resolve_jal(context, target_section, target_func_vram, matched_func_index);
@@ -921,7 +930,6 @@ bool recompile_function_impl(GeneratorType& generator, const N64Recomp::Context&
             while ((reloc_index + 1) < section.relocs.size() && section.relocs[reloc_index].address < vram) {
                 reloc_index++;
             }
-
             // Process the current instruction and check for errors
             if (process_instruction(generator, context, func, func_index, stats, jtbl_lw_instructions, instr_index, instructions, output_file, false, needs_link_branch, num_link_branches, reloc_index, needs_link_branch, is_branch_likely, tag_reference_relocs, static_funcs_out) == false) {
                 fmt::print(stderr, "Error in recompiling {} at instr {}\n", func.name, instr_index);
@@ -946,7 +954,7 @@ bool recompile_function_impl(GeneratorType& generator, const N64Recomp::Context&
 
     // Terminate the function
     generator.emit_function_end();
-    
+
     return true;
 }
 

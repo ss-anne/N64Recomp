@@ -546,6 +546,16 @@ void recomp_unhandled_cop0_write(uint8_t *rdram, recomp_context *ctx,
 void recomp_unhandled_instruction(uint8_t *rdram, recomp_context *ctx,
                                   uint32_t instr_vram, const char *opcode_name);
 
+/* Runtime fragment registrar — invoked from a Memmap_RelocateFragment
+ * hook (see Stadium's game.toml). Translates Stadium's encoded fragment
+ * id to the matching section in the recompiled section_table and
+ * registers all of that section's FuncEntry rows in func_map at
+ * (fragment_ptr + offset). Also runs the trampoline scanner over the
+ * fragment's textbin region. Implemented in
+ * librecomp/src/overlays.cpp. */
+void recomp_register_runtime_fragment(uint8_t *rdram, uint32_t id,
+                                       int32_t fragment_ptr);
+
 #ifdef __cplusplus
 }
 #endif
