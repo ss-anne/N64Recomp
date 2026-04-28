@@ -38,6 +38,12 @@
  *     → {"ok":true,"enabled":N}
  *   reset
  *     → {"ok":true,"status":0}
+ *   read_memory {addr, len}      addr is hex (0x...) or dec; len <= 4096
+ *     → {"ok":true,"addr":"0x...","len":N,"bytes":"hexhexhex..."}
+ *   read_pc
+ *     → {"ok":true,"pc":"0x..."}
+ *   read_gpr {reg}               reg = 0..31 (MIPS R4300 register index)
+ *     → {"ok":true,"reg":N,"value":"0x..."}
  *   quit
  *     → exits the server
  *
@@ -241,6 +247,72 @@ std::string handle(const std::string& line) {
             std::reverse(events.begin(), events.end());
         }
         return render_events(events);
+    }
+    if (cmd == "read_memory") {
+        uint32_t addr = get_uint(line, "addr", 0);
+        int len = get_int(line, "len", 0);
+        if (len < 1 || len > 4096) {
+            return R"({"ok":false,"error":"len out of range [1,4096]"})";
+        }
+        std::vector<uint8_t> bytes((size_t)len, 0);
+        ares_status_t r = ares_read_memory(addr, bytes.data(), (size_t)len);
+        if (r != ARES_BRIDGE_OK) {
+            char buf[128];
+            std::snprintf(buf, sizeof(buf),
+                "{\"ok\":false,\"error\":\"ares_read_memory status=%d\","
+                "\"addr\":\"0x%08x\",\"len\":%d}",
+                (int)r, (unsigned)addr, len);
+            return buf;
+        }
+        std::string out = R"({"ok":true,"addr":")";
+        char abuf[16];
+        std::snprintf(abuf, sizeof(abuf), "0x%08x", (unsigned)addr);
+        out += abuf;
+        out += R"(","len":)";
+        out += std::to_string(len);
+        out += R"(,"bytes":")";
+        out.reserve(out.size() + (size_t)len * 2 + 8);
+        for (int i = 0; i < len; i++) {
+            char hb[3];
+            std::snprintf(hb, sizeof(hb), "%02x", (unsigned)bytes[(size_t)i]);
+            out.append(hb, 2);
+        }
+        out += R"("})";
+        return out;
+    }
+    if (cmd == "read_pc") {
+        uint32_t pc = 0;
+        ares_status_t r = ares_read_pc(&pc);
+        if (r != ARES_BRIDGE_OK) {
+            char buf[96];
+            std::snprintf(buf, sizeof(buf),
+                "{\"ok\":false,\"error\":\"ares_read_pc status=%d\"}", (int)r);
+            return buf;
+        }
+        char buf[64];
+        std::snprintf(buf, sizeof(buf),
+            "{\"ok\":true,\"pc\":\"0x%08x\"}", (unsigned)pc);
+        return buf;
+    }
+    if (cmd == "read_gpr") {
+        int reg = get_int(line, "reg", -1);
+        if (reg < 0 || reg > 31) {
+            return R"({"ok":false,"error":"reg out of range [0,31]"})";
+        }
+        uint64_t v = 0;
+        ares_status_t r = ares_read_cpu_register(reg, &v);
+        if (r != ARES_BRIDGE_OK) {
+            char buf[96];
+            std::snprintf(buf, sizeof(buf),
+                "{\"ok\":false,\"error\":\"ares_read_cpu_register status=%d\"}",
+                (int)r);
+            return buf;
+        }
+        char buf[96];
+        std::snprintf(buf, sizeof(buf),
+            "{\"ok\":true,\"reg\":%d,\"value\":\"0x%016llx\"}",
+            reg, (unsigned long long)v);
+        return buf;
     }
     if (cmd == "rsp_trace_set_enabled") {
         bool on = get_bool(line, "on", true);

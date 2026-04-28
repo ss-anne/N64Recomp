@@ -188,7 +188,10 @@ BranchTargets get_branch_targets(const std::vector<rabbitizer::InstructionRsp>& 
     BranchTargets ret;
     for (const auto& instr : instrs) {
         if (instr.isJumpWithAddress() || instr.isBranch()) {
-            ret.direct_targets.insert(instr.getBranchVramGeneric() & rsp_mem_mask);
+            // OR with 0x1000 (IMEM region bit) so the target matches how
+            // labels are emitted at instruction boundaries. See process_instruction
+            // for the same masking applied to branch_target references.
+            ret.direct_targets.insert((instr.getBranchVramGeneric() | 0x1000u) & rsp_mem_mask);
         }
         if (instr.doesLink()) {
             ret.indirect_targets.insert(instr.getVram() + 2 * instr_size);
@@ -265,7 +268,14 @@ bool process_instruction(size_t instr_index, const std::vector<rabbitizer::Instr
         }
     }
 
-    uint16_t branch_target = instr.getBranchVramGeneric() & rsp_mem_mask;
+    // Mask to RSP IMEM range (13 bits) then OR with the IMEM region bit (0x1000)
+    // so labels match how the indirect-jump switch and label declarations encode
+    // PCs (always L_1XXX for IMEM offsets 0x000..0x07F, L_2XXX is invalid).
+    // Without the OR, branches whose computed PC wraps below 0x1000 (e.g. an
+    // aspMain `beq` with a large negative imm targeting an rspboot helper at
+    // IMEM[0x44]) emit `goto L_0044` for which no label exists. The OR makes
+    // it `L_1044`, matching how rspboot bytes get recompiled when included.
+    uint16_t branch_target = (instr.getBranchVramGeneric() | 0x1000u) & rsp_mem_mask;
 
     // Output a comment with the original instruction
     if (instr.isBranch() || instr_id == InstrId::rsp_j) {

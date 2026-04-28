@@ -549,24 +549,87 @@ ares_status_t ares_step_instruction(void) {
         "Phase 4 — single-step requires accuracy-mode scheduler swap.");
 }
 
-ares_status_t ares_read_cpu_register(int, uint64_t *) {
-    glue_unimplemented("ares_read_cpu_register",
-        "Phase 3 — needs R4300 register-file accessor.");
+ares_status_t ares_read_cpu_register(int reg, uint64_t *out) {
+    if (!out) return ARES_BRIDGE_INVALID_ARGUMENT;
+    if (reg < 0 || reg >= 32) return ARES_BRIDGE_INVALID_ARGUMENT;
+    std::lock_guard<std::mutex> lock(g_state_mutex);
+    if (!g_state.system_loaded) return ARES_BRIDGE_NOT_INITIALIZED;
+    *out = ares::Nintendo64::cpu.ipu.r[reg].u64;
+    return ARES_BRIDGE_OK;
 }
 
-ares_status_t ares_read_pc(uint32_t *) {
-    glue_unimplemented("ares_read_pc",
-        "Phase 3 — needs R4300 PC accessor.");
+ares_status_t ares_read_pc(uint32_t *out) {
+    if (!out) return ARES_BRIDGE_INVALID_ARGUMENT;
+    std::lock_guard<std::mutex> lock(g_state_mutex);
+    if (!g_state.system_loaded) return ARES_BRIDGE_NOT_INITIALIZED;
+    *out = (uint32_t)(ares::Nintendo64::cpu.ipu.pc & 0xFFFFFFFFu);
+    return ARES_BRIDGE_OK;
 }
 
-ares_status_t ares_read_hi_lo(uint64_t *, uint64_t *) {
-    glue_unimplemented("ares_read_hi_lo",
-        "Phase 3 — needs R4300 HI/LO accessor.");
+ares_status_t ares_read_hi_lo(uint64_t *hi, uint64_t *lo) {
+    std::lock_guard<std::mutex> lock(g_state_mutex);
+    if (!g_state.system_loaded) return ARES_BRIDGE_NOT_INITIALIZED;
+    if (hi) *hi = ares::Nintendo64::cpu.ipu.hi.u64;
+    if (lo) *lo = ares::Nintendo64::cpu.ipu.lo.u64;
+    return ARES_BRIDGE_OK;
 }
 
-ares_status_t ares_read_memory(uint32_t, void *, size_t) {
-    glue_unimplemented("ares_read_memory",
-        "Phase 3 — needs RDRAM access + TLB translation hook.");
+/*
+ * Read N bytes of N64 memory at virtual address `vaddr`.
+ *
+ * Address decoding: we strip the segment bits and dispatch by physical
+ * region. KSEG0 (0x80000000) and KSEG1 (0xA0000000) both alias to
+ * physical 0x00000000-0x1FFFFFFF, and at this stage we don't need TLB
+ * translation (the OSTask diagnostic targets fixed K0 audio buffers).
+ *
+ *   paddr 0x00000000-0x007FFFFF (or +4MiB w/ exp pak): RDRAM
+ *   paddr 0x04000000-0x04000FFF                      : RSP DMEM
+ *   paddr 0x04001000-0x04001FFF                      : RSP IMEM
+ *
+ * Reads are byte-by-byte through the Writable<Byte> accessor, which
+ * applies the xor-3 endian swap for N64's big-endian memory layout.
+ * That is correct but slow; if a future caller wants megabyte reads,
+ * cluster into 8-byte Dual reads first.
+ */
+ares_status_t ares_read_memory(uint32_t vaddr, void *buf, size_t len) {
+    if (!buf && len) return ARES_BRIDGE_INVALID_ARGUMENT;
+    std::lock_guard<std::mutex> lock(g_state_mutex);
+    if (!g_state.system_loaded) return ARES_BRIDGE_NOT_INITIALIZED;
+
+    uint32_t paddr = vaddr & 0x1FFFFFFFu;
+    uint8_t *dst = static_cast<uint8_t *>(buf);
+
+    auto &rdram = ares::Nintendo64::rdram;
+    auto &rsp   = ares::Nintendo64::rsp;
+
+    if (paddr < rdram.ram.size) {
+        uint64_t end = (uint64_t)paddr + (uint64_t)len;
+        if (end > rdram.ram.size) return ARES_BRIDGE_INVALID_ARGUMENT;
+        for (size_t i = 0; i < len; i++) {
+            dst[i] = (uint8_t)rdram.ram.read<ares::Nintendo64::Byte>(paddr + (uint32_t)i, "oracle");
+        }
+        return ARES_BRIDGE_OK;
+    }
+
+    if (paddr >= 0x04000000u && paddr <  0x04001000u) {
+        uint32_t off = paddr - 0x04000000u;
+        if (off + len > 0x1000u) return ARES_BRIDGE_INVALID_ARGUMENT;
+        for (size_t i = 0; i < len; i++) {
+            dst[i] = (uint8_t)rsp.dmem.read<ares::Nintendo64::Byte>(off + (uint32_t)i);
+        }
+        return ARES_BRIDGE_OK;
+    }
+
+    if (paddr >= 0x04001000u && paddr <  0x04002000u) {
+        uint32_t off = paddr - 0x04001000u;
+        if (off + len > 0x1000u) return ARES_BRIDGE_INVALID_ARGUMENT;
+        for (size_t i = 0; i < len; i++) {
+            dst[i] = (uint8_t)rsp.imem.read<ares::Nintendo64::Byte>(off + (uint32_t)i);
+        }
+        return ARES_BRIDGE_OK;
+    }
+
+    return ARES_BRIDGE_INVALID_ARGUMENT;
 }
 
 ares_status_t ares_set_controller(int, const ares_input_t *) {
