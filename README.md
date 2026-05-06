@@ -1,4 +1,13 @@
 # N64: Recompiled
+
+> **Fork notice** — This is a personal fork maintained by [@mstan](https://github.com/mstan) for
+> personal tinkering and growth/development only, in support of the
+> [PokemonStadiumRecomp](https://github.com/mstan/PokemonStadiumRecomp) project.
+> It is **not** a definitive or authoritative source, may lag behind
+> upstream, and should not be relied upon as a substitute for the
+> official project. For canonical N64Recomp, see
+> [N64Recomp/N64Recomp](https://github.com/N64Recomp/N64Recomp).
+
 N64: Recompiled is a tool to statically recompile N64 binaries into C code that can be compiled for any platform. This can be used for ports or tools as well as for simulating behaviors significantly faster than interpreters or dynamic recompilation can. More widely, it can be used in any context where you want to run some part of an N64 binary in a standalone environment.
 
 This is not the first project that uses static recompilation on game console binaries. A well known example is [jamulator](https://github.com/andrewrk/jamulator), which targets NES binaries. Additionally, this is not even the first project to apply static recompilation to N64-related projects: the [IDO static recompilation](https://github.com/decompals/ido-static-recomp) recompiles the SGI IRIX IDO compiler on modern systems to faciliate matching decompilation of N64 games. This project works similarly to the IDO static recomp project in some ways, and that project was my main inspiration for making this.
