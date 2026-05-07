@@ -514,6 +514,19 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
     case InstrId::cpu_nop:
         fmt::print(output_file, "\n");
         break;
+    // CPU cache management op (`cache op, offset(base)`). Semantically
+    // a no-op in the recompiled environment: there is no CPU cache
+    // hierarchy to flush/invalidate, and the instruction has no
+    // observable side effect on register state or memory contents.
+    // Surfaces in libultra (osInvalDCache / osWritebackDCache /
+    // osInvalICache) and game code that prepares DMA-source buffers
+    // for cache coherency. Treating as nop is the architecturally-
+    // correct HLE model for the same reason cop0 status/cause storage
+    // is HLE-correct: we don't simulate the subsystem the instruction
+    // talks to.
+    case InstrId::cpu_cache:
+        fmt::print(output_file, "\n");
+        break;
     // COP0 dispatch.
     //
     // Each register is handled deliberately, not by a default fallback:
