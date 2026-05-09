@@ -220,7 +220,18 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
                 if (!s.relocatable) continue;
                 const uint32_t s_start = uint32_t(s.ram_addr);
                 const uint32_t s_end = s_start + uint32_t(s.size);
-                if (abs_value >= s_start && abs_value < s_end) {
+                // Use STRICT > for the lower bound. References to the EXACT
+                // section base (abs_value == s_start) are typically arithmetic
+                // constants — e.g. PokemonStadium's fragment-id derivation
+                //   `((D_8D000000 & 0x0FF00000) >> 20) - 0x10`
+                // where D_8D000000 is the link base of section 380. If we
+                // remap such a reference, the LUI loads the runtime base of
+                // the section instead of the literal 0x8D000000, and the
+                // bit-arithmetic produces garbage (not the intended id 0xC0).
+                // Real fragment-internal data references (the original
+                // 2026-05-03 case D_8140DD78 = 0x8140DD78) have abs_value
+                // strictly past s_start, so they still get remapped correctly.
+                if (abs_value > s_start && abs_value < s_end) {
                     reloc_section = uint32_t(si);
                     // The downstream code computes
                     //   reloc_target_section_offset =
@@ -242,6 +253,37 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
         if (!reloc.reference_symbol && reloc_section != N64Recomp::SectionAbsolute) {
             const auto& target_section = context.sections[reloc_section];
             target_relocatable = target_section.relocatable;
+
+            // Section-base reference exclusion. If a HI16/LO16 reloc points
+            // EXACTLY at the relocatable section's base (target_section_offset
+            // == 0 after any bss/abs adjustment), the source code is
+            // overwhelmingly using this as an ARITHMETIC CONSTANT (not as a
+            // pointer to runtime data). PokemonStadium has e.g.:
+            //
+            //   func_80004454((((u32)&D_81000000 & 0x0FF00000) >> 0x14) - 0x10, ...)
+            //
+            // where D_81000000 IS the link base of fragment31. The linker
+            // resolves the reloc to fragment31's section, but the source
+            // intent is the literal 0x81000000 used to derive a fragment id
+            // via bit-arithmetic. If we relocate this to the runtime base,
+            // the bit-math computes a garbage id and Stadium then writes
+            // gFragments[garbage_id] which can clobber gSegments via
+            // out-of-bounds (gFragments[-15] aliases gSegments[1]).
+            //
+            // Concrete fix: emit literal for offset==0 references. The
+            // legitimate "I want the runtime base of this section as a
+            // pointer" case is rare in practice; Stadium uses
+            // Memmap_GetFragmentVaddr/Memmap_GetSegmentVaddr functions for
+            // that, not direct LUI/ADDIU at offset 0.
+            if (target_relocatable
+                && (reloc.type == N64Recomp::RelocType::R_MIPS_HI16
+                    || reloc.type == N64Recomp::RelocType::R_MIPS_LO16)) {
+                const uint32_t adjusted_offset =
+                    uint32_t(reloc.target_section_offset) + bss_remap_offset_adjustment;
+                if (adjusted_offset == 0) {
+                    target_relocatable = false;
+                }
+            }
         }
 
         // Only process this relocation if the target section is relocatable or if this relocation targets a reference symbol.
