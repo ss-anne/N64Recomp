@@ -1,3 +1,11 @@
+// Part of N64Recomp's ares-bridge subsystem (added by Matthew Stanley
+// in mstan fork; not present upstream). Distributed under the project's
+// MIT License (see ../../LICENSE).
+//
+// Copyright (c) 2026 Matthew Stanley
+//
+// ---------------------------------------------------------------------
+
 /*
  * ares_rsp_ring.cpp — always-on RSP per-instruction trace ring.
  *

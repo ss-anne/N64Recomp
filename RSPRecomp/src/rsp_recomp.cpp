@@ -1,3 +1,21 @@
+// N64Recomp — modifications in this file by Matthew Stanley (mstan
+// fork). Distributed under the project's MIT License (see ../../LICENSE).
+// Original file copyright remains with upstream N64Recomp authors.
+//
+// Modified 2026 by Matthew Stanley:
+//   - Path A: persistent RSP GPRs across run_task calls + per-register
+//     cop0 dispatch with documented HLE model (paired with librecomp
+//     rsp.cpp).
+//   - Always-on watchdog + PC trail emission at every label for live
+//     RSP-hang inspection.
+//   - Pre-task hook + richer watchdog state dump.
+//   - aspMain PC mapping fix; expose Ares state via ares-bridge for
+//     divergence-checking diagnostics.
+//
+// Copyright (c) 2026 Matthew Stanley
+//
+// ---------------------------------------------------------------------
+
 #include <optional>
 #include <fstream>
 #include <array>
