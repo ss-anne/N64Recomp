@@ -1,11 +1,11 @@
 # N64: Recompiled
 
-> **Fork notice** — This is a personal fork maintained by [@mstan](https://github.com/mstan) for
-> personal tinkering and growth/development only, in support of the
-> [PokemonStadiumRecomp](https://github.com/mstan/PokemonStadiumRecomp) project.
-> It is **not** a definitive or authoritative source, may lag behind
-> upstream, and should not be relied upon as a substitute for the
-> official project. For canonical N64Recomp, see
+> **Fork notice** — This fork is maintained under the
+> [SS Anne](https://github.com/ss-anne) organization as part of the
+> [PokemonStadiumRecomp](https://github.com/ss-anne/PokemonStadiumRecomp)
+> project ecosystem. Changes here exist to support that port; they
+> may lag behind upstream and are not intended as a replacement for
+> the canonical project. For canonical N64Recomp, see
 > [N64Recomp/N64Recomp](https://github.com/N64Recomp/N64Recomp).
 
 N64: Recompiled is a tool to statically recompile N64 binaries into C code that can be compiled for any platform. This can be used for ports or tools as well as for simulating behaviors significantly faster than interpreters or dynamic recompilation can. More widely, it can be used in any context where you want to run some part of an N64 binary in a standalone environment.
