@@ -1,3 +1,18 @@
+// N64Recomp — modifications in this file by Matthew Stanley (mstan
+// fork). Distributed under the project's MIT License (see LICENSE).
+// Original file copyright remains with upstream authors.
+//
+// Modified 2026 by Matthew Stanley:
+//   - Mask host-side rdram offset in MEM_W / MEM_H / MEM_B / MEM_HU /
+//     MEM_BU / SD so out-of-range vaddrs wrap into the mapped 1GB
+//     rdram region instead of faulting (matches N64 hardware's
+//     silent address-bus wrap; converts host SEGVs from corrupt
+//     pointers into garbage reads we can keep diagnosing).
+//
+// Copyright (c) 2026 Matthew Stanley
+//
+// ---------------------------------------------------------------------
+
 #ifndef __RECOMP_H__
 #define __RECOMP_H__
 
@@ -94,24 +109,36 @@ typedef uint64_t gpr;
 #define SUB32(a, b) \
     ((gpr)(int32_t)((a) - (b)))
 
+// Mask the host-side rdram offset so out-of-range vaddrs wrap into
+// the mapped region instead of faulting. Without this, a recompiled
+// load whose register holds a corrupt or sign-mismatched value (e.g.
+// a small kuseg-style pointer that was sign-extended) computes a
+// host offset past the mapped 1GB rdram block and triggers a host
+// access violation. Real N64 hardware silently wraps such vaddrs
+// (RDRAM address bus only has so many bits); this mask reproduces
+// that behavior so the recompiled program reads garbage instead of
+// crashing the host. Must match recomp::mem_size (1GB) in
+// lib/N64ModernRuntime/librecomp/include/librecomp/addresses.hpp.
+#define RECOMP_MEM_MASK 0x3FFFFFFFu
+
 #define MEM_W(offset, reg) \
-    (*(int32_t*)(rdram + ((((reg) + (offset))) - 0xFFFFFFFF80000000)))
+    (*(int32_t*)(rdram + ((((reg) + (offset)) - 0xFFFFFFFF80000000) & RECOMP_MEM_MASK)))
 
 #define MEM_H(offset, reg) \
-    (*(int16_t*)(rdram + ((((reg) + (offset)) ^ 2) - 0xFFFFFFFF80000000)))
+    (*(int16_t*)(rdram + (((((reg) + (offset)) ^ 2) - 0xFFFFFFFF80000000) & RECOMP_MEM_MASK)))
 
 #define MEM_B(offset, reg) \
-    (*(int8_t*)(rdram + ((((reg) + (offset)) ^ 3) - 0xFFFFFFFF80000000)))
+    (*(int8_t*)(rdram + (((((reg) + (offset)) ^ 3) - 0xFFFFFFFF80000000) & RECOMP_MEM_MASK)))
 
 #define MEM_HU(offset, reg) \
-    (*(uint16_t*)(rdram + ((((reg) + (offset)) ^ 2) - 0xFFFFFFFF80000000)))
+    (*(uint16_t*)(rdram + (((((reg) + (offset)) ^ 2) - 0xFFFFFFFF80000000) & RECOMP_MEM_MASK)))
 
 #define MEM_BU(offset, reg) \
-    (*(uint8_t*)(rdram + ((((reg) + (offset)) ^ 3) - 0xFFFFFFFF80000000)))
+    (*(uint8_t*)(rdram + (((((reg) + (offset)) ^ 3) - 0xFFFFFFFF80000000) & RECOMP_MEM_MASK)))
 
 #define SD(val, offset, reg) { \
-    *(uint32_t*)(rdram + ((((reg) + (offset) + 4)) - 0xFFFFFFFF80000000)) = (uint32_t)((gpr)(val) >> 0); \
-    *(uint32_t*)(rdram + ((((reg) + (offset) + 0)) - 0xFFFFFFFF80000000)) = (uint32_t)((gpr)(val) >> 32); \
+    *(uint32_t*)(rdram + ((((reg) + (offset) + 4) - 0xFFFFFFFF80000000) & RECOMP_MEM_MASK)) = (uint32_t)((gpr)(val) >> 0); \
+    *(uint32_t*)(rdram + ((((reg) + (offset) + 0) - 0xFFFFFFFF80000000) & RECOMP_MEM_MASK)) = (uint32_t)((gpr)(val) >> 32); \
 }
 
 static inline uint64_t load_doubleword(uint8_t* rdram, gpr reg, gpr offset) {
